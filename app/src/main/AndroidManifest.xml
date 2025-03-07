@@ -2,10 +2,13 @@
 
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Permission pour l'accès à Internet -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application
         android:allowBackup="true"
+        android:name=".MyApp"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -14,6 +17,8 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ISENSmartCompanion"
         tools:targetApi="31">
+
+        <!-- Définir l'activité principale -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -21,10 +26,17 @@
             android:theme="@style/Theme.ISENSmartCompanion">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Configuration de la clé API pour Google AI Client SDK -->
+        <meta-data
+            android:name="com.google.ai.API_KEY"
+            android:value="AIzaSyBMKR2IR8l5gIs_49vVG-3PPd1abyLAKSw" />
+        <meta-data
+            android:name="com.google.firebase.ml.modeldownloader"
+            android:value="true" />
     </application>
 
 </manifest>

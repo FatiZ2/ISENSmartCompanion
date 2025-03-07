@@ -1,68 +1,51 @@
 package fr.isen.chenani.isensmartcompanion
 
+import android.app.Application
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import fr.isen.chenani.isensmartcompanion.R.drawable.logo4
+import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
+import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.HiltAndroidApp
 import fr.isen.chenani.isensmartcompanion.ui.theme.ISENSmartCompanionTheme
-import retrofit2.Call
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.Headers
-import retrofit2.http.POST
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import retrofit2.Callback
-import retrofit2.Response
+import retrofit2.*
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.GET
+import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.content
+import androidx.compose.ui.tooling.preview.Preview
 
+// Application class for Hilt
+@HiltAndroidApp
+class MyApp : Application()
+
+// Main Activity with Hilt support
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,117 +57,164 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-data class GPTRequest(
-    val model: String = "text-davinci-003",
-    val prompt: String,
-    val max_tokens: Int = 100
+// Data model for an Event
+data class Event(
+    @SerializedName("id") val id: String? = null,
+    @SerializedName("title") val title: String? = null,
+    @SerializedName("description") val description: String? = null,
+    @SerializedName("date") val date: String? = null,
+    @SerializedName("location") val location: String? = null,
+    @SerializedName("imageUrl") val imageUrl: String? = null
 )
 
-data class GPTResponse(
-    val choices: List<Choice>
-)
-
-data class Choice(
-    val text: String
-)
-
-interface OpenAIApiService {
-    @Headers(
-        "Content-Type: application/json",
-        "Authorization: Bearer ${BuildConfig.OPENAI_API_KEY}" // Utilisation correcte
-    )
-    @POST("v1/completions")
-    suspend fun getCompletion(@Body request: GPTRequest): Response<GPTResponse>
+// Retrofit API interface
+interface EventApiService {
+    @GET("events.json")
+    fun getEvents(): Call<List<Event>>
 }
 
-
-
-object RetrofitClient {
-    private const val BASE_URL = "https://api.openai.com/"
-
-    val apiService: OpenAIApiService by lazy {
+// Retrofit client
+object EventRetrofitClient {
+    private const val BASE_URL = "https://isen-smart-companion-default-rtdb.europe-west1.firebasedatabase.app/"
+    val apiService: EventApiService by lazy {
         Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(OpenAIApiService::class.java)
+            .create(EventApiService::class.java)
     }
 }
 
-class ChatViewModel : ViewModel() {
-    var responseText by mutableStateOf("")
+// ViewModel to fetch and store events
+class EventViewModel : ViewModel() {
+    var events by mutableStateOf<List<Event>>(emptyList())
         private set
 
-    fun getAIResponse(prompt: String) {
-        viewModelScope.launch {
-            try {
-                val request = GPTRequest(prompt = prompt)
-                val response = RetrofitClient.apiService.getCompletion(request)
+    fun fetchEvents() {
+        EventRetrofitClient.apiService.getEvents().enqueue(object : Callback<List<Event>> {
+            override fun onResponse(call: Call<List<Event>>, response: Response<List<Event>>) {
                 if (response.isSuccessful) {
-                    responseText = response.body()?.choices?.get(0)?.text ?: "Pas de réponse"
+                    events = response.body() ?: emptyList()
+                    Log.d("EventViewModel", "Événements chargés : ${events.size}")
                 } else {
-                    responseText = "Erreur de réponse"
+                    Log.e("EventViewModel", "Erreur de réponse : ${response.errorBody()?.string()}")
                 }
-            } catch (e: Exception) {
-                responseText = "Erreur : ${e.message}"
+            }
+
+            override fun onFailure(call: Call<List<Event>>, t: Throwable) {
+                Log.e("EventViewModel", "Erreur réseau : ${t.message}")
+            }
+        })
+    }
+}
+
+// Composable function to display the list of events
+@Composable
+fun EventsScreen(navController: NavHostController, viewModel: EventViewModel = hiltViewModel()) {
+    val events = viewModel.events
+    val gson = Gson()
+    LaunchedEffect(Unit) {
+        viewModel.fetchEvents()
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Événements à venir",
+            style = MaterialTheme.typography.headlineMedium
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        if (events.isEmpty()) {
+            Text(text = "Aucun événement disponible", color = Color.Gray)
+        } else {
+            events.forEach { event ->
+                EventItem(event = event) {
+                    if (!event.id.isNullOrEmpty()) {
+                        val eventJson = gson.toJson(event)
+                        navController.navigate("eventDetails/$eventJson")
+                    }
+                }
             }
         }
     }
 }
 
-
-@OptIn(ExperimentalMaterial3Api::class)
+// Composable function to display a single event
 @Composable
-fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
-    var inputText by remember { mutableStateOf("") }
-    val responseText = viewModel.responseText
-
-    LaunchedEffect(responseText) {
-        // Déclencher une action à chaque fois que la réponse change
+fun EventItem(event: Event, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+            .background(Color.White, RoundedCornerShape(10.dp))
+            .padding(16.dp)
+            .clickable { onClick() }
+    ) {
+        Text(text = event.title ?: "Sans titre", style = MaterialTheme.typography.headlineSmall)
     }
+}
 
+// Event details screen
+@Composable
+fun EventDetailsScreen(eventJson: String) {
+    val gson = Gson()
+    val event = gson.fromJson(eventJson, Event::class.java)
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.SpaceBetween
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Column {
-            Text(text = "Assistant IA", style = MaterialTheme.typography.headlineMedium)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(text = responseText)
+        Text(text = "ID : ${event.id}", style = MaterialTheme.typography.headlineMedium)
+        Text(text = "Titre : ${event.title}")
+        Text(text = "Description : ${event.description}")
+        Text(text = "Date : ${event.date}")
+        Text(text = "Lieu : ${event.location}")
+    }
+}
+
+// Gemini AI Interaction
+@Composable
+fun GeminiScreen() {
+    var userInput by remember { mutableStateOf("") }
+    var responses by remember { mutableStateOf(listOf<String>()) }
+    val model = GenerativeModel(
+        modelName = "gemini-1.5-flash",
+        apiKey = "AIzaSyAJh_yW6voF2ixCuBuG7CRJSOLBV2hh754"
+    )
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp)
+    ) {
+        TextField(
+            value = userInput,
+            onValueChange = { userInput = it },
+            label = { Text("Entrez du texte à analyser") }
+        )
+        Button(onClick = {
+            scope.launch {
+                val response = model.generateContent(prompt = "Content for: $userInput")
+                response?.text?.let { responseText ->
+                    responses = responses + responseText
+                } ?: Log.e("GeminiAI", "La réponse n'a pas de texte valide.")
+            }
+        }) {
+            Text("Analyser avec Gemini")
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextField(
-                value = inputText,
-                onValueChange = { inputText = it },
-                placeholder = { Text(text = "Demander à l'IA...") },
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(
-                onClick = {
-                    if (inputText.isNotBlank()) {
-                        viewModel.getAIResponse(inputText)
-                        inputText = ""
-                    }
-                }
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowForward,
-                    contentDescription = "Envoyer"
-                )
-            }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Réponses de Gemini AI :")
+        responses.forEach {
+            Text(text = it, modifier = Modifier.padding(4.dp))
         }
     }
 }
 
-
-
-
-
+// Navigation setup
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppNavigation() {
@@ -192,234 +222,75 @@ fun AppNavigation() {
     Scaffold(
         bottomBar = { BottomNavigationBar(navController) }
     ) { innerPadding ->
-        NavGraph(
+        NavHost(
             navController = navController,
-            modifier = Modifier.padding(innerPadding)
-        )
-    }
-}
-
-@Composable
-fun NavGraph(navController: NavHostController, modifier: Modifier = Modifier) {
-    NavHost(
-        navController = navController,
-        startDestination = "main",
-        modifier = modifier
-    ) {
-        composable("main") { MainScreen() }
-        composable("events") { EventsScreen() }
-        composable("history") { HistoryScreen() }
-        composable("assistant") { ChatScreen() }
-    }
-}
-
-@Composable
-fun MainScreen() {
-    Greeting()
-}
-
-@Composable
-fun EventsScreen() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Événements à venir",
-            style = MaterialTheme.typography.headlineMedium
-        )
-    }
-}
-
-@Composable
-fun HistoryScreen() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Historique des événements",
-            style = MaterialTheme.typography.headlineMedium
-        )
-    }
-}
-
-@Composable
-fun Greeting(modifier: Modifier = Modifier) {
-    var messages by remember { mutableStateOf(listOf<String>()) }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
-    ) {
-        DisplayImage()
-        Spacer(modifier = Modifier.weight(1f))
-        MessageList(messages)
-        InputBar { newMessage ->
-            messages = messages + newMessage
-            messages = messages + "Merci pour ton message"
-        }
-    }
-}
-
-@Composable
-fun DisplayImage() {
-    Image(
-        painter = painterResource(id = logo4),
-        contentDescription = null,
-        modifier = Modifier
-            .size(100.dp)
-            .padding(top = 8.dp)
-    )
-}
-
-@Composable
-fun MessageList(messages: List<String>) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-    ) {
-        messages.forEach { message ->
-            Text(
-                text = message,
-                modifier = Modifier
-                    .padding(8.dp)
-                    .background(Color.White, RoundedCornerShape(10.dp))
-                    .padding(16.dp)
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun InputBar(onMessageSent: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .background(
-                color = Color(0xFFE9EBF8),
-                shape = RoundedCornerShape(20.dp)
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        TextField(
-            value = text,
-            onValueChange = { text = it },
-            placeholder = { Text(text = "Écrire ici...") },
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 8.dp),
-            colors = TextFieldDefaults.textFieldColors(
-                containerColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent
-            )
-        )
-
-        IconButton(
-            onClick = {
-                if (text.isNotBlank()) {
-                    onMessageSent(text)
-                    text = "" // Réinitialise le champ après l'envoi
-                }
-            },
-            modifier = Modifier
-                .size(40.dp)
-                .background(
-                    color = Color.Red,
-                    shape = CircleShape
-                )
+            startDestination = "main",
+            Modifier.padding(innerPadding)
         ) {
-            Icon(
-                imageVector = Icons.Default.ArrowForward,
-                contentDescription = "Envoyer",
-                tint = Color.White
-            )
+            composable("main") { MainScreen(navController) }
+            composable("events") { EventsScreen(navController) }
+            composable("eventDetails/{eventJson}") { backStackEntry ->
+                val eventJson = backStackEntry.arguments?.getString("eventJson")
+                if (eventJson != null) {
+                    EventDetailsScreen(eventJson)
+                }
+            }
+            composable("gemini") { GeminiScreen() }
         }
     }
 }
 
+// Bottom navigation bar
 @Composable
 fun BottomNavigationBar(navController: NavHostController) {
     NavigationBar {
         NavigationBarItem(
-            icon = { Icon(Icons.Filled.Home, contentDescription = "Home") },
-            label = { Text("Home") },
+            icon = { Icon(Icons.Filled.Home, contentDescription = "Accueil") },
+            label = { Text("Accueil") },
             selected = navController.currentDestination?.route == "main",
-            onClick = {
-                navController.navigate("main") {
-                    popUpTo(navController.graph.startDestinationId) {
-                        saveState = true
-                    }
-                    launchSingleTop = true
-                    restoreState = true
-                }
-            }
+            onClick = { navController.navigate("main") }
         )
-
         NavigationBarItem(
-            icon = { Icon(Icons.Filled.Favorite, contentDescription = "Events") },
-            label = { Text("Events") },
+            icon = { Icon(Icons.Filled.Favorite, contentDescription = "Événements") },
+            label = { Text("Événements") },
             selected = navController.currentDestination?.route == "events",
-            onClick = {
-                navController.navigate("events") {
-                    popUpTo(navController.graph.startDestinationId) {
-                        saveState = true
-                    }
-                    launchSingleTop = true
-                    restoreState = true
-                }
-            }
+            onClick = { navController.navigate("events") }
         )
-
         NavigationBarItem(
-            icon = { Icon(Icons.Filled.Settings, contentDescription = "History") },
-            label = { Text("History") },
-            selected = navController.currentDestination?.route == "history",
-            onClick = {
-                navController.navigate("history") {
-                    popUpTo(navController.graph.startDestinationId) {
-                        saveState = true
-                    }
-                    launchSingleTop = true
-                    restoreState = true
-                }
-            }
-        )
-
-        // Onglet pour l'Assistant IA
-        NavigationBarItem(
-            icon = { Icon(Icons.Filled.Settings, contentDescription = "Assistant IA") },
-            label = { Text("Assistant IA") },
-            selected = navController.currentDestination?.route == "assistant",
-            onClick = {
-                navController.navigate("assistant") {
-                    popUpTo(navController.graph.startDestinationId) {
-                        saveState = true
-                    }
-                    launchSingleTop = true
-                    restoreState = true
-                }
-            }
+            icon = { Icon(Icons.Filled.Settings, contentDescription = "Paramètres") },
+            label = { Text("Paramètres") },
+            selected = navController.currentDestination?.route == "gemini",
+            onClick = { navController.navigate("gemini") }
         )
     }
 }
 
 
+// Main screen with navigation
+@Composable
+fun MainScreen(navController: NavHostController) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.logo4), // Remplace 'logo4' par le nom de ton image
+            contentDescription = "Logo de l'application",
+            modifier = Modifier
+                .size(150.dp)
+                .padding(bottom = 16.dp)
+        )
+        Button(onClick = { navController.navigate("events") }) {
+            Text(text = "Voir les événements")
+        }
+        Button(onClick = { navController.navigate("gemini") }) {
+            Text(text = "Analyser avec Gemini AI")
+        }
+    }
+}
 @Preview(showBackground = true)
 @Composable
 fun PreviewApp() {
@@ -427,3 +298,4 @@ fun PreviewApp() {
         AppNavigation()
     }
 }
+
